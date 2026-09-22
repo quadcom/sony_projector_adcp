@@ -47,6 +47,15 @@ POWER_STATE_MAP = {
     "cooling2": "off",
 }
 
+# Display labels for the raw power_status reply
+POWER_STATUS_LABELS = {
+    "standby": "Off",
+    "startup": "Warming up",
+    "on": "On",
+    "cooling1": "Cooling down",
+    "cooling2": "Cooling down",
+}
+
 # Commands
 CMD_POWER_ON = 'power "on"'
 CMD_POWER_OFF = 'power "off"'

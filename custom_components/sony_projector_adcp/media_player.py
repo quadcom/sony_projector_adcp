@@ -1,4 +1,5 @@
 """Media Player entity for Sony Projector ADCP."""
+import asyncio
 import logging
 from typing import Any, Optional
 
@@ -14,10 +15,20 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback, async_get
 import voluptuous as vol
 from homeassistant.helpers import config_validation as cv
 
-from .const import DEFAULT_NAME, DOMAIN, INPUT_SOURCES, PICTURE_MODES, POWER_STATE_MAP
+from .const import (
+    DEFAULT_NAME,
+    DOMAIN,
+    INPUT_SOURCES,
+    PICTURE_MODES,
+    POWER_STATE_MAP,
+    POWER_STATUS_LABELS,
+)
 from .protocol import SonyProjectorADCP
 
 _LOGGER = logging.getLogger(__name__)
+
+POWER_WATCH_INTERVAL = 1  # seconds
+POWER_WATCH_TIMEOUT = 120  # seconds
 
 # Service schemas
 SERVICE_SEND_KEY = "send_key"
@@ -177,6 +188,8 @@ class SonyProjectorMediaPlayer(MediaPlayerEntity):
             "model": "VPL-XW5000",
         }
         self._attr_state = MediaPlayerState.OFF
+        self._power_status: Optional[str] = None
+        self._power_watch_task: Optional[asyncio.Task] = None
         self._current_source = None
         self._is_blank = False
         self._picture_mode = None
@@ -186,18 +199,22 @@ class SonyProjectorMediaPlayer(MediaPlayerEntity):
         self._light_output = None
         self._reality_creation = None
 
+    async def _refresh_power(self) -> None:
+        """Query the projector's power status and update state from it."""
+        power_status = await self._projector.get_power_status()
+        if power_status:
+            self._power_status = power_status
+            self._attr_state = (
+                MediaPlayerState.ON
+                if POWER_STATE_MAP.get(power_status) == "on"
+                else MediaPlayerState.OFF
+            )
+
     async def async_update(self) -> None:
         """Update the state of the projector."""
         try:
-            # Get power status
-            power_status = await self._projector.get_power_status()
-            if power_status:
-                self._attr_state = (
-                    MediaPlayerState.ON
-                    if POWER_STATE_MAP.get(power_status) == "on"
-                    else MediaPlayerState.OFF
-                )
-            
+            await self._refresh_power()
+
             # Get additional info if powered on
             if self._attr_state == MediaPlayerState.ON:
                 # Get input source
@@ -281,11 +298,45 @@ class SonyProjectorMediaPlayer(MediaPlayerEntity):
 
     async def async_turn_on(self) -> None:
         """Turn the projector on."""
-        await self._projector.set_power(True)
+        if await self._projector.set_power(True):
+            self._attr_state = MediaPlayerState.ON
+            self._power_status = "startup"
+            self.async_write_ha_state()
+        self._start_power_watch()
 
     async def async_turn_off(self) -> None:
         """Turn the projector off."""
-        await self._projector.set_power(False)
+        if await self._projector.set_power(False):
+            self._attr_state = MediaPlayerState.OFF
+            self._power_status = "cooling1"
+            self.async_write_ha_state()
+        self._start_power_watch()
+
+    def _start_power_watch(self) -> None:
+        """(Re)start the background task that polls power status until it settles."""
+        if self._power_watch_task and not self._power_watch_task.done():
+            self._power_watch_task.cancel()
+        self._power_watch_task = self.hass.async_create_background_task(
+            self._power_watch(), f"{self.entity_id} power watch"
+        )
+
+    async def _power_watch(self) -> None:
+        """Poll power status until it reaches a stable state or the timeout elapses."""
+        for _ in range(POWER_WATCH_TIMEOUT // POWER_WATCH_INTERVAL):
+            await asyncio.sleep(POWER_WATCH_INTERVAL)
+            try:
+                await self._refresh_power()
+            except Exception as e:
+                _LOGGER.debug("Error polling power status: %s", e)
+                continue
+            self.async_write_ha_state()
+            if self._power_status in ("on", "standby"):
+                break
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel the power watch task if it is still running."""
+        if self._power_watch_task and not self._power_watch_task.done():
+            self._power_watch_task.cancel()
 
     async def async_select_source(self, source: str) -> None:
         """Select input source."""
@@ -424,7 +475,10 @@ class SonyProjectorMediaPlayer(MediaPlayerEntity):
         attrs = {
             "video_muted": self._is_blank,
         }
-        
+
+        if self._power_status:
+            attrs["power_status"] = POWER_STATUS_LABELS.get(self._power_status, self._power_status)
+
         if self._picture_mode:
             attrs["picture_mode"] = PICTURE_MODES.get(self._picture_mode, self._picture_mode)
         
