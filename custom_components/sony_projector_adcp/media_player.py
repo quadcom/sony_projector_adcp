@@ -580,7 +580,8 @@ class SonyProjectorMediaPlayer(MediaPlayerEntity):
             attrs["reality_creation"] = self._reality_creation
 
         for key, value in self._settings.items():
-            attrs[key] = _label(value)
+            # signal is already display text ("3840x2160/60p")
+            attrs[key] = value if key == "signal" else _label(value)
         attrs.update(self._hours)
         attrs.update(self._health)
         attrs.update(self._info)
