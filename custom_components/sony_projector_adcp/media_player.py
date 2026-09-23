@@ -1,6 +1,7 @@
 """Media Player entity for Sony Projector ADCP."""
 import asyncio
 import logging
+import re
 from typing import Any, Optional
 
 from homeassistant.components.media_player import (
@@ -22,10 +23,24 @@ from .const import (
     PICTURE_MODES,
     POWER_STATE_MAP,
     POWER_STATUS_LABELS,
+    READ_SETTINGS,
 )
 from .protocol import SonyProjectorADCP
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _label(value: Any) -> Any:
+    """Turn a raw ADCP value into a display label, e.g. "gamma7" -> "Gamma 7"."""
+    if value is None or not isinstance(value, str):
+        return value
+    text = value.replace("_", " ")
+    if re.fullmatch(r"d\d+", text):
+        return text.upper()
+    match = re.fullmatch(r"(.*?)(\d+)", text)
+    if match and match.group(1):
+        return f"{match.group(1).rstrip().title()} {match.group(2)}"
+    return text.title()
 
 POWER_WATCH_INTERVAL = 1  # seconds
 POWER_WATCH_TIMEOUT = 120  # seconds
@@ -198,6 +213,10 @@ class SonyProjectorMediaPlayer(MediaPlayerEntity):
         self._sharpness = None
         self._light_output = None
         self._reality_creation = None
+        self._settings: dict[str, Any] = {}
+        self._hours: dict[str, int] = {}
+        self._health: dict[str, str] = {}
+        self._info: dict[str, str] = {}
 
     async def _refresh_power(self) -> None:
         """Query the projector's power status and update state from it."""
@@ -280,6 +299,67 @@ class SonyProjectorMediaPlayer(MediaPlayerEntity):
                         self._reality_creation = reality_creation
                 except Exception as e:
                     _LOGGER.debug("Error getting reality creation: %s", e)
+
+                # Get picture settings - keep last value if a query fails
+                for attr, param in READ_SETTINGS.items():
+                    try:
+                        value = await self._projector.query(param)
+                        if value is not None:
+                            self._settings[attr] = value
+                    except Exception as e:
+                        _LOGGER.debug("Error getting %s: %s", attr, e)
+
+                # Get operating hours
+                try:
+                    timer = await self._projector.query("timer")
+                    if timer:
+                        hours = {k: v for item in timer for k, v in item.items()}
+                        if "operation" in hours:
+                            self._hours["operating_hours"] = hours["operation"]
+                        if "light_src" in hours:
+                            self._hours["light_source_hours"] = hours["light_src"]
+                except Exception as e:
+                    _LOGGER.debug("Error getting timer: %s", e)
+
+                # Get error and warning status
+                try:
+                    errors = await self._projector.query("error")
+                    if errors is not None:
+                        active = [e for e in errors if e != "no_err"]
+                        self._health["error"] = (
+                            "None" if not active else ", ".join(_label(e) for e in active)
+                        )
+                except Exception as e:
+                    _LOGGER.debug("Error getting error status: %s", e)
+
+                try:
+                    warnings = await self._projector.query("warning")
+                    if warnings is not None:
+                        active = [w for w in warnings if w != "no_warn"]
+                        self._health["warning"] = (
+                            "None" if not active else ", ".join(_label(w) for w in active)
+                        )
+                except Exception as e:
+                    _LOGGER.debug("Error getting warning status: %s", e)
+
+                # Model / serial / firmware - queried once per HA start
+                if not self._info:
+                    try:
+                        model = await self._projector.query("modelname")
+                        if model is not None:
+                            self._info["model"] = model
+                        serial = await self._projector.query("serialnum")
+                        if serial is not None:
+                            self._info["serial"] = serial
+                        version = await self._projector.query("version")
+                        if version:
+                            firmware = {k: v for item in version for k, v in item.items()}
+                            if "main" in firmware:
+                                self._info["firmware"] = firmware["main"]
+                            if "laser" in firmware:
+                                self._info["laser_firmware"] = firmware["laser"]
+                    except Exception as e:
+                        _LOGGER.debug("Error getting device info: %s", e)
             else:
                 # If powered off, clear these values
                 self._brightness = None
@@ -288,6 +368,8 @@ class SonyProjectorMediaPlayer(MediaPlayerEntity):
                 self._light_output = None
                 self._picture_mode = None
                 self._reality_creation = None
+                self._settings = {}
+                self._health = {}
                     
         except Exception as e:
             _LOGGER.error("Error updating projector state: %s", e)
@@ -496,5 +578,11 @@ class SonyProjectorMediaPlayer(MediaPlayerEntity):
         
         if self._reality_creation is not None:
             attrs["reality_creation"] = self._reality_creation
-        
+
+        for key, value in self._settings.items():
+            attrs[key] = _label(value)
+        attrs.update(self._hours)
+        attrs.update(self._health)
+        attrs.update(self._info)
+
         return attrs

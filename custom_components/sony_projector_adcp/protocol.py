@@ -1,8 +1,9 @@
 """Sony ADCP Protocol Handler."""
 import asyncio
 import hashlib
+import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -217,6 +218,23 @@ class SonyProjectorADCP:
         command = f'key "{key}"'
         response = await self.send_command(command)
         return response == "ok"
+
+    async def query(self, parameter: str) -> Any:
+        """Send a read query and parse the reply: quoted string, JSON, int or raw text."""
+        response = await self.send_command(f"{parameter} ?")
+        if not response:
+            return None
+        if response.startswith('"') and response.endswith('"'):
+            return response.strip('"')
+        if response.startswith("["):
+            try:
+                return json.loads(response)
+            except ValueError:
+                return None
+        try:
+            return int(response)
+        except ValueError:
+            return response
 
     async def get_reality_creation(self) -> Optional[str]:
         """Get Reality Creation status."""

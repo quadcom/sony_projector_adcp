@@ -56,6 +56,22 @@ POWER_STATUS_LABELS = {
     "cooling2": "Cooling down",
 }
 
+# Attribute name to ADCP read parameter, polled into extra_state_attributes
+READ_SETTINGS = {
+    "signal": "signal",
+    "hdr_mode": "hdr",
+    "color_temp": "color_temp",
+    "color_space": "color_space",
+    "gamma": "gamma_correction",
+    "motionflow": "motionflow",
+    "contrast_enhancer": "contrast_enh",
+    "color": "color",
+    "hue": "hue",
+    "aspect": "aspect",
+    "input_lag_reduction": "input_lag_red",
+    "noise_reduction": "nr",
+}
+
 # Commands
 CMD_POWER_ON = 'power "on"'
 CMD_POWER_OFF = 'power "off"'
