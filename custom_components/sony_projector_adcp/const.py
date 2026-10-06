@@ -1,4 +1,6 @@
 """Constants for Sony Projector ADCP integration."""
+import re
+from typing import Any
 
 DOMAIN = "sony_projector_adcp"
 
@@ -111,3 +113,70 @@ KEY_ENTER = "enter"
 # Responses
 RESPONSE_OK = "ok"
 ERROR_PREFIX = "err_"
+
+# Display labels that the generic rule in label() would get wrong
+LABEL_OVERRIDES = {
+    "hdr10": "HDR10",
+    "hlg": "HLG",
+    "hdr_reference": "HDR Reference",
+    "bt2020": "BT.2020",
+    "bt709": "BT.709",
+    "dci": "DCI",
+    "adobe_rgb": "Adobe RGB",
+    "true_cinema": "True Cinema",
+    "v_stretch": "V Stretch",
+    "brt_cinema": "Bright Cinema",
+    "brt_tv": "Bright TV",
+    "mid": "Mid",
+}
+
+# Parameters whose accepted values are a list, read with "<param> ? --range"
+SELECT_PARAMS = (
+    "picture_mode",
+    "input",
+    "color_temp",
+    "color_space",
+    "gamma_correction",
+    "motionflow",
+    "contrast_enh",
+    "nr",
+    "hdr",
+    "aspect",
+)
+SWITCH_PARAMS = ("real_cre", "input_lag_red", "blank")
+
+# Numeric parameters and the range used when the projector does not report one
+NUMBER_DEFAULT_RANGES = {
+    "brightness": {"min": 0, "max": 100},
+    "contrast": {"min": 0, "max": 100},
+    "sharpness": {"min": 0, "max": 100},
+    "color": {"min": 0, "max": 100},
+    "hue": {"min": 0, "max": 100},
+    "light_output_val": {"min": 0, "max": 1000},
+}
+
+
+def label(value: Any) -> Any:
+    """Turn a raw ADCP value into a display label, e.g. "gamma7" -> "Gamma 7"."""
+    if value is None or not isinstance(value, str):
+        return value
+    if value in LABEL_OVERRIDES:
+        return LABEL_OVERRIDES[value]
+    if re.fullmatch(r"-?\d+(\.\d+)?", value):
+        return value
+    text = value.replace("_", " ")
+    if re.fullmatch(r"d\d+", text):
+        return text.upper()
+    match = re.fullmatch(r"(.*?)(\d+)", text)
+    if match and match.group(1):
+        return f"{match.group(1).rstrip().title()} {match.group(2)}"
+    return text.title()
+
+
+def option_label(param: str, value: Any) -> Any:
+    """Display label for a raw value of a given ADCP parameter."""
+    if param == "picture_mode" and value in PICTURE_MODES:
+        return PICTURE_MODES[value]
+    if param == "input" and value in INPUT_SOURCES:
+        return INPUT_SOURCES[value]
+    return label(value)

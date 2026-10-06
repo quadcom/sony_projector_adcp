@@ -12,7 +12,7 @@ This custom integration allows you to control Sony projectors (specifically the 
 ### Additional Controls via Services
 All advanced controls are accessible through custom media player services:
 
-- **Picture Adjustments**: Brightness, Contrast, Sharpness, Light Output (0-100)
+- **Picture Adjustments**: Brightness, Contrast, Sharpness (0-100), Light Output (0-1000)
 - **Picture Modes**: Cinema Film 1/2, Reference, TV, Photo, Game, Bright Cinema/TV, User 1/2/3
 - **Menu Navigation**: Menu, Up, Down, Left, Right, Enter, Reset
 - **Video Mute**: Blank screen function
@@ -89,8 +89,19 @@ The integration creates a single media player entity: `media_player.sony_project
 - `brightness` - Current brightness level (0-100)
 - `contrast` - Current contrast level (0-100)
 - `sharpness` - Current sharpness level (0-100)
-- `light_output` - Current light output level (0-100)
+- `light_output` - Current light output level (0-1000)
 - `reality_creation` - Reality Creation status ("on" or "off")
+
+### Settings Entities
+
+Every setting is also a real entity on the same device, so a dashboard can show dropdowns, sliders and switches with live values. Option lists and slider limits come from the projector itself (`<param> ? --range`), so they follow the current picture mode and incoming signal. An entity is unavailable while the projector is off or while the projector says the setting cannot be changed.
+
+| Type | Entities |
+|------|----------|
+| Select | Picture mode, Input, Colour temperature, Colour space, Gamma, Motionflow, Contrast enhancer, Noise reduction, HDR, Aspect |
+| Number | Brightness, Contrast, Sharpness, Colour, Hue, Light output |
+| Switch | Reality Creation, Input lag reduction, Picture blank |
+| Button | Menu, Up, Down, Left, Right, Enter, Reset |
 
 ### Custom Services
 

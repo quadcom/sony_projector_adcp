@@ -116,8 +116,14 @@ class SonyProjectorADCP:
             _LOGGER.error("Error writing to projector: %s", e)
             raise
 
-    async def send_command(self, command: str) -> Optional[str]:
-        """Send a command and return the response."""
+    async def send_command(
+        self, command: str, log_errors: bool = True
+    ) -> Optional[str]:
+        """Send a command and return the response.
+
+        An err_ reply returns None; it is logged at error level only when
+        log_errors is set, otherwise at debug level.
+        """
         async with self._lock:
             # Ensure we're connected
             if not self._writer or not self._reader:
@@ -135,7 +141,12 @@ class SonyProjectorADCP:
                 
                 # Check for errors
                 if response.startswith("err_"):
-                    _LOGGER.error("Command error: %s for command: %s", response, command)
+                    _LOGGER.log(
+                        logging.ERROR if log_errors else logging.DEBUG,
+                        "Command error: %s for command: %s",
+                        response,
+                        command,
+                    )
                     return None
                 
                 return response
@@ -145,9 +156,9 @@ class SonyProjectorADCP:
                 await self.disconnect()
                 return None
 
-    async def get_power_status(self) -> Optional[str]:
+    async def get_power_status(self, log_errors: bool = True) -> Optional[str]:
         """Get the current power status."""
-        response = await self.send_command("power_status ?")
+        response = await self.send_command("power_status ?", log_errors)
         if response and response.startswith('"') and response.endswith('"'):
             return response.strip('"')
         return None
@@ -197,9 +208,11 @@ class SonyProjectorADCP:
         response = await self.send_command(command)
         return response == "ok"
 
-    async def get_numeric_value(self, parameter: str) -> Optional[int]:
+    async def get_numeric_value(
+        self, parameter: str, log_errors: bool = True
+    ) -> Optional[int]:
         """Get a numeric parameter value."""
-        response = await self.send_command(f"{parameter} ?")
+        response = await self.send_command(f"{parameter} ?", log_errors)
         if response and response.isdigit():
             return int(response)
         # Handle negative numbers
@@ -219,9 +232,9 @@ class SonyProjectorADCP:
         response = await self.send_command(command)
         return response == "ok"
 
-    async def query(self, parameter: str) -> Any:
+    async def query(self, parameter: str, log_errors: bool = True) -> Any:
         """Send a read query and parse the reply: quoted string, JSON, int or raw text."""
-        response = await self.send_command(f"{parameter} ?")
+        response = await self.send_command(f"{parameter} ?", log_errors)
         if not response:
             return None
         if response.startswith('"') and response.endswith('"'):
@@ -235,6 +248,37 @@ class SonyProjectorADCP:
             return int(response)
         except ValueError:
             return response
+
+    async def query_range(self, parameter: str) -> Any:
+        """Read the values the projector accepts right now for a parameter.
+
+        Returns a list of strings, a {"min": int, "max": int} dict, or None
+        when the projector replies with an error or an unparsable reply.
+        """
+        response = await self.send_command(f"{parameter} ? --range", False)
+        if not response:
+            return None
+        try:
+            parsed = json.loads(response)
+        except ValueError:
+            return None
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+        if isinstance(parsed, dict) and "min" in parsed and "max" in parsed:
+            try:
+                return {"min": int(parsed["min"]), "max": int(parsed["max"])}
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    async def set_value(self, parameter: str, value: str | int) -> bool:
+        """Set a parameter: a quoted string value or a bare integer."""
+        if isinstance(value, str):
+            command = f'{parameter} "{value}"'
+        else:
+            command = f"{parameter} {int(value)}"
+        response = await self.send_command(command)
+        return response == "ok"
 
     async def get_reality_creation(self) -> Optional[str]:
         """Get Reality Creation status."""

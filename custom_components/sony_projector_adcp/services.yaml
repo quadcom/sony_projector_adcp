@@ -135,12 +135,12 @@ set_light_output:
   fields:
     value:
       name: Light Output
-      description: Light output level (0-100)
+      description: Light output level (0-1000)
       required: true
       selector:
         number:
           min: 0
-          max: 100
+          max: 1000
           step: 1
           mode: slider
 
